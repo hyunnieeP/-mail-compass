@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>메일 업무 나침반</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--ink:#1f2937;--sub:#6b7280;--line:#e5e7eb;--red:#dc2626;--redbg:#fee2e2;--amber:#b45309;--amberbg:#fef3c7;--green:#047857;--greenbg:#d1fae5;--blue:#2563eb}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Malgun Gothic","맑은 고딕",system-ui,sans-serif;line-height:1.55}
+.wrap{max-width:900px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:22px;margin:4px 0}
+h2{font-size:17px;margin:28px 0 10px}
+.sub{color:var(--sub);font-size:14px;margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px}
+.mail .top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.mail .from{font-size:13px;color:var(--sub)}
+.mail .subj{font-weight:700}
+.mail .body{font-size:14px;color:#374151;margin-top:6px;white-space:pre-wrap}
+.x{border:0;background:none;color:var(--sub);cursor:pointer;font-size:18px}
+button.btn{background:var(--blue);color:#fff;border:0;border-radius:8px;padding:10px 16px;font:inherit;font-weight:700;cursor:pointer}
+button.btn.ghost{background:#fff;color:var(--blue);border:1px solid var(--blue)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+input,textarea{width:100%;font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;margin-top:6px;background:#fff;color:var(--ink)}
+textarea{min-height:90px}
+.badge{display:inline-block;padding:2px 10px;border-radius:99px;font-size:13px;font-weight:700}
+.b-긴급{background:var(--redbg);color:var(--red)}
+.b-중요{background:var(--amberbg);color:var(--amber)}
+.b-일반{background:var(--greenbg);color:var(--green)}
+.order{display:flex;gap:12px;align-items:flex-start}
+.num{flex:none;width:34px;height:34px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:700}
+.kv{font-size:14px;margin-top:4px}
+.kv b{display:inline-block;min-width:92px;color:var(--sub);font-weight:600}
+.tag{font-size:12px;padding:1px 8px;border-radius:6px;background:#eef2ff;color:#3730a3;margin-right:4px}
+pre.notice{white-space:pre-wrap;font-family:inherit;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 14px;margin:0;font-size:14.5px}
+.small{font-size:12.5px;color:var(--sub)}
+details{margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🧭 Mail Compass <span style="font-weight:400;color:var(--sub);font-size:16px">· 메일 업무 나침반</span></h1>
+  <p class="sub">메일을 넣으면 ① 경중 등급 ② 처리 순서 ③ 오늘 할 첫 행동 ④ 보고/직접 결정 ⑤ 공지문 초안까지 한 번에 정리합니다.</p>
+
+  <h2>1. 받은 메일 <span class="small" id="cnt"></span></h2>
+  <div id="mails"></div>
+
+  <details class="card">
+    <summary><b>+ 새 메일 추가해서 분류해 보기</b></summary>
+    <input id="nf" placeholder="보낸 사람 (예: 김OO 강사)">
+    <input id="ns" placeholder="제목">
+    <textarea id="nb" placeholder="본문을 붙여 넣으세요"></textarea>
+    <div class="row"><button class="btn ghost" onclick="addMail()">메일 추가</button></div>
+  </details>
+
+  <div class="row">
+    <button class="btn" onclick="run()">▶ 분류하기</button>
+    <button class="btn ghost" onclick="copyAll()">📋 결과 전체 복사</button>
+    <button class="btn ghost" onclick="resetSamples()">처음 5건으로 되돌리기</button>
+  </div>
+
+  <div id="out"></div>
+
+  <h2>분류 기준 (규칙)</h2>
+  <div class="card small" id="rules"></div>
+  <p class="small">※ 이 도구는 키워드 점수로 1차 정리를 돕는 보조 도구입니다. 최종 판단과 공지문 발송 전 확인은 사람이 합니다.</p>
+</div>
+
+<script>
+// ---------- 분류 기준 ----------
+const RULES=[
+ {k:'법적 위험',w:4,re:/진정|노동부|소송|체불|미지급|신고|노무|고소/},
+ {k:'퇴사·이직 위험',w:3,re:/그만둘|이직|사직|못 버티|다른 학원|제안을 받|퇴사하/},
+ {k:'인사 조치 요구',w:2,re:/교체|해고|퇴출|징계|내보/},
+ {k:'전사 공지 필요',w:2,re:/공지/},
+ {k:'기한 임박(이번 주)',w:2,re:/오늘|이번 주|금요일|내일|수요일|즉시/},
+ {k:'기한(이번 달)',w:1,re:/이번 달|이달/},
+ {k:'돈 관련',w:1,re:/급여|연봉|만 ?원|수당|임금|\d+%/}
+];
+function grade(s){return s>=6?'긴급':s>=3?'중요':'일반'}
+
+// ---------- 예시 메일 5건 (과제C) ----------
+const SAMPLES=[
+{id:1,from:'김OO 강사 (수학, 근속 4년)',subj:'드릴 말씀이 있습니다',body:'팀장님, 입사하신 지 얼마 안 되셨는데 이런 말씀을 드려 죄송합니다.\n지난주 다른 학원에서 지금보다 연봉 15% 높은 조건으로 제안을 받았습니다. 이 학원과 학생들을 생각하면 남고 싶은데, 솔직히 생활이 빠듯합니다.\n금요일까지 그쪽에 답을 줘야 합니다. 회사의 입장을 그 전에 들을 수 있을까요?',
+ cur:{reason:'금요일 기한이 있고, 핵심 강사 이직 위험이 큼',action:'오늘 오전 김OO 강사에게 "수요일까지 회사 입장을 드리겠다"고 회신. 오늘 저녁 대표 통화에서 유지 방안 협의 (수요일 오후까지).',note:'15% 인상은 급여 동결 방침과 충돌. 금전 외 대안(역할·교육 등)도 대표와 함께 검토.'}},
+{id:2,from:'이OO 매니저 (운영지원)',subj:'업무 분장 문제로 더는 못 버티겠습니다',body:'박OO 매니저가 자기 업무인 학부모 상담 기록 정리를 계속 제게 넘깁니다. 지난달부터 세 번째입니다.\n말을 꺼내면 \'원래 같이 하던 일\'이라고 합니다. 이 상태가 계속되면 저는 그만둘 생각입니다.\n팀장님이 정리해 주셨으면 합니다.',
+ cur:{reason:'퇴사 의사를 밝혔지만 기한은 없어, 면담으로 빠르게 풀 수 있음',action:'오늘 이OO 매니저와 개별 면담(15분), 이어서 박OO 매니저와 개별 면담. 수요일까지 상담 기록 정리 담당을 문서로 정해 공유.',note:'한쪽 말만 듣지 않기. 업무 분장표를 만들어 재발 방지.'}},
+{id:3,from:'부사장',subj:'급여 동결 공지문 초안 부탁합니다',body:'2027년 1월부터 12월까지 전 직원 급여를 동결하기로 했습니다. 2028년부터 아파트 특화 사업 매출이 들어오면 다시 검토할 예정입니다.\n이번 주 안에 직원들에게 공지해야 합니다. 공지문 초안을 오늘 중으로 부탁합니다. 저는 수요일까지 출장이라 저녁에만 통화가 됩니다.',
+ cur:{reason:'오늘 중 초안 요청. 쓰는 데 오래 안 걸리고, 보내기 전 확인이 필요함',action:'오늘 오후 3시까지 공지문 초안을 작성해 부사장에게 메일로 전달. 발송은 부사장·대표 확인 후 이번 주 안에.',note:'메일 1(김OO 강사) 대응 방침과 어긋나지 않는지 발송 전 점검.'},
+ notice:'[안내] 2027년도 급여 정책 및 경영 방향 안내\n\n교육다움 임직원 여러분, 늘 각자의 자리에서 최선을 다해주셔서 진심으로 감사드립니다.\n최근 대내외 교육 시장의 불확실성과 내년 현금 유동성 확보라는 경영 환경에 따라, 회사는 고심 끝에 2027년 1월부터 12월까지 전 직원의 기본급을 현 수준으로 동결하기로 결정하였습니다.\n작은 조직에서 함께 고생하는 여러분께 더 큰 보상으로 보답하지 못해 경영진으로서 무겁고 송구한 마음입니다.\n다만 이번 결정은 회사의 내실을 다져 고용 안정을 지키기 위한 불가피한 조치이며, 현재 추진 중인 아파트 특화 사업의 매출이 본격화되는 2028년에는 처우 개선과 보상안을 최우선으로 재검토하겠습니다.\n그전까지 불필요한 업무 부담을 줄이고 실질적인 업무 환경을 개선할 수 있도록 경영지원팀에서도 적극 지원하겠습니다.\n관련하여 건의사항이나 개인별 고충이 있으신 분은 언제든 경영지원팀장에게 편히 말씀해 주시기 바라며, 앞으로도 회사와 구성원이 함께 성장할 수 있도록 최선을 다하겠습니다.'},
+{id:4,from:'정OO 실장 (가맹지원)',subj:'최OO 직원 건',body:'최OO 직원(정규직, 입사 1년 2개월)이 3개월째 목표의 절반도 못 하고 있습니다. 가맹 상담 일지도 자주 빠집니다.\n다른 직원들도 불만이 많고, 솔직히 교체해 주셨으면 합니다. 이번 달 안에 결론을 내 주시면 좋겠습니다.',
+ cur:{reason:'이번 달 안에 결론이면 되고, 교체(해고)는 절차가 필요해 서두르면 위험함',action:'오늘 정OO 실장에게 최근 3개월 목표 대비 실적과 상담일지 누락 자료를 요청 (금요일까지). 최OO 직원 면담은 자료 확인 후 다음 주.',note:'교체 결정은 대표 권한. 면담·서면 경고·개선 기회 등 절차를 기록으로 남기기. 실장 의견만으로 결정 금지.'}},
+{id:5,from:'외부 메일 (전 직원 한OO, 2026년 9월 퇴사)',subj:'미지급 연장근로수당 지급 요청',body:'재직 중 평일 저녁 설명회와 주말 행사에 여러 차례 근무했지만 연장근로수당을 받지 못했습니다. 제가 계산한 금액은 약 380만 원입니다.\n이번 주 금요일까지 답이 없으면 고용노동부에 진정을 넣겠습니다.\n(참고: 해당 기간 근태 기록은 일부만 남아 있고, 주말 행사 출근부는 없습니다.)',
+ cur:{reason:'금요일 기한에 노동부 진정 예고, 법적·금전 위험이 가장 큼',action:'오늘 한OO에게 "접수했고 확인 후 회신하겠다"고 짧게 답장. 오늘 저녁 대표에게 보고. 근태·급여·행사 일정 자료 수집 시작, 수요일까지 노무사 상담 예약.',note:'근태 기록이 일부뿐이라 자료 확보가 관건. 지급·거절 판단은 노무사 확인 후.'}}
+];
+
+// 예시 메일별 회신 초안 / 대표에게 받을 결정
+const EXTRA={
+ 1:{ask:'김OO 강사 유지 방안 (금전 외 대안 포함) 방향',reply:'김OO 선생님, 솔직하게 말씀해 주셔서 감사합니다. 선생님은 우리 학원에 꼭 필요한 분이라고 생각합니다. 금요일 전에 회사의 입장을 말씀드릴 수 있도록 수요일까지 답을 드리겠습니다. 조금만 시간을 주세요. - 경영지원팀장 드림'},
+ 2:{ask:'',reply:'이OO 매니저님, 어려움을 말씀해 주셔서 고맙습니다. 오늘 오후에 15분 정도 따로 이야기 나누고 싶습니다. 가능한 시간을 알려 주세요. - 경영지원팀장 드림'},
+ 3:{ask:'공지문 최종 확인과 발송일',reply:'부사장님, 공지문 초안을 오늘 오후 3시까지 보내드리겠습니다. 확인 후 발송 시점을 알려 주세요. - 경영지원팀장 드림'},
+ 4:{ask:'최OO 직원 건 절차(면담·서면 경고·개선 기회) 방향 승인',reply:'정OO 실장님, 메일 확인했습니다. 결정 전에 근거를 정리하려고 합니다. 최근 3개월 목표 대비 실적과 상담일지 누락 현황을 금요일까지 보내 주세요. - 경영지원팀장 드림'},
+ 5:{ask:'미지급 수당 대응 방향 (노무사 상담 승인, 지급 여부)',reply:'한OO 님, 안녕하세요. 경영지원팀장입니다. 보내주신 내용 잘 받았습니다. 근무 내역과 급여 자료를 확인한 뒤 금요일 전에 결과를 회신드리겠습니다. 확인에 도움이 되도록 근무 일자·시간 메모가 있으면 함께 보내 주세요.'}
+};
+let mails=JSON.parse(JSON.stringify(SAMPLES));
+let result=[];
+
+// ---------- 분류 엔진 ----------
+function classify(m){
+  const t=m.from+' '+m.subj+' '+m.body;
+  const hit=RULES.filter(r=>r.re.test(t));
+  const score=hit.reduce((a,r)=>a+r.w,0);
+  const names=hit.map(r=>r.k);
+  const legal=names.includes('법적 위험'), hr=names.includes('인사 조치 요구'), money=names.includes('돈 관련');
+  const report=(legal||hr||money);
+  let action,reason;
+  if(m.cur){reason=m.cur.reason;action=m.cur.action}
+  else{
+    reason=(names.length?names.join('·')+' 신호 감지':'특별한 위험 신호 없음')+' (점수 '+score+')';
+    if(legal)action='오늘 상대방에게 접수 회신, 증빙 자료 수집, 대표 보고, 필요 시 노무사 상담 예약.';
+    else if(names.includes('퇴사·이직 위험'))action='오늘 본인과 개별 면담 일정을 잡고 상황 파악.';
+    else if(hr)action='오늘 요청자에게 근거 자료 요청, 결정은 절차(면담·기록)를 거쳐 대표와 협의.';
+    else if(names.includes('전사 공지 필요'))action='오늘 공지문 초안 작성 후 요청자 확인.';
+    else action='이번 주 안에 확인 후 회신.';
+  }
+  const words=hit.map(r=>{const f=t.match(new RegExp(r.re.source,'g'))||[];return r.k+': '+[...new Set(f)].join(', ')});
+  const ex=EXTRA[m.id]&&m.cur?EXTRA[m.id]:{ask:report?'판단 필요 (내용 확인 후 결정)':'',reply:''};
+  return {m,score,grade:grade(score),names,words,ask:ex.ask,reply:ex.reply,reason,action,
+    who:report?'대표 보고':'직접 결정',
+    note:m.cur?m.cur.note:'',
+    notice:m.notice||(/공지/.test(t)?'(이 메일에는 공지 요청이 있습니다. 내용을 확인하고 공지문을 작성하세요.)':'')};
+}
+function run(){
+  result=mails.map((m,i)=>({...classify(m),idx:i})).sort((a,b)=>b.score-a.score||a.idx-b.idx);
+  render();
+}
+
+// ---------- 화면 ----------
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function renderMails(){
+  document.getElementById('cnt').textContent='('+mails.length+'건)';
+  document.getElementById('mails').innerHTML=mails.map((m,i)=>`
+   <div class="card mail"><div class="top"><div><div class="from">메일 ${m.id} · ${esc(m.from)}</div><div class="subj">${esc(m.subj)}</div></div>
+   <button class="x" title="삭제" onclick="delMail(${i})">✕</button></div>
+   <div class="body">${esc(m.body)}</div></div>`).join('');
+}
+function render(){
+  renderMails();
+  const o=document.getElementById('out');
+  if(!result.length){o.innerHTML='';return}
+  let h='<h2>2. 처리 순서와 이유</h2>';
+  h+=result.map((r,i)=>`<div class="card order"><div class="num">${i+1}</div><div>
+    <div><span class="badge b-${r.grade}">${r.grade}</span> <b>메일 ${r.m.id}</b> · ${esc(r.m.subj)} <span class="small">(점수 ${r.score})</span></div>
+    <div class="kv">${esc(r.reason)}</div></div></div>`).join('');
+  h+='<h2>3. 건별 첫 행동</h2>';
+  h+=result.map(r=>`<div class="card"><div><span class="badge b-${r.grade}">${r.grade}</span> <b>메일 ${r.m.id}</b> · ${esc(r.m.from)}</div>
+    <div class="kv"><b>오늘 첫 행동</b>${esc(r.action)}</div>
+    <div class="kv"><b>보고/결정</b><span class="tag">${r.who}</span></div>
+    ${r.note?`<div class="kv"><b>비고</b>${esc(r.note)}</div>`:''}
+    <div class="kv small"><b>걸린 키워드</b>${r.words.length?r.words.map(n=>`<span class="tag">${esc(n)}</span>`).join(''):'없음'}</div>
+    ${r.reply?`<details><summary class="small">✉ 회신 초안 보기</summary><pre class="notice" id="reply${r.m.id}">${esc(r.reply)}</pre><div class="row"><button class="btn ghost" onclick="copyText(document.getElementById('reply${r.m.id}').innerText)">회신 복사</button></div></details>`:''}</div>`).join('');
+  const rep=result.filter(r=>r.who==='대표 보고');
+  h+='<h2>4. 대표 저녁 통화 브리핑</h2><div class="card"><div class="small">대표 보고 '+rep.length+'건 · 급한 순서</div><pre class="notice" id="brief">'+esc(briefText(rep))+'</pre><div class="row"><button class="btn ghost" onclick="copyText(document.getElementById(\'brief\').innerText)">브리핑 복사</button></div></div>';
+  h+='<h2>5. 오늘 할 일 체크리스트</h2><div class="card">'+result.map(r=>`<label class="kv" style="display:block"><input type="checkbox" style="width:auto;margin:0 8px 0 0" onchange="this.parentNode.style.opacity=this.checked?.45:1;this.parentNode.style.textDecoration=this.checked?'line-through':'none'">메일 ${r.m.id} · ${esc(r.action)}</label>`).join('')+'</div>';
+  const nt=result.filter(r=>r.notice);
+  if(nt.length){
+    h+='<h2>6. 공지문 초안</h2>';
+    h+=nt.map(r=>`<div class="card"><div class="small">메일 ${r.m.id} 기준</div><pre class="notice" id="notice${r.m.id}">${esc(r.notice)}</pre>
+      <div class="row"><button class="btn ghost" onclick="copyText(document.getElementById('notice${r.m.id}').innerText)">공지문 복사</button></div></div>`).join('');
+  }
+  o.innerHTML=h;
+}
+function briefText(rep){
+  if(!rep.length)return '대표에게 보고할 건이 없습니다.';
+  return '대표님, 월요일 메일 정리해 보고드립니다. (보고 '+rep.length+'건)\n'+
+    rep.map((r,i)=>`${i+1}) [${r.grade}] 메일 ${r.m.id} ${r.m.subj}\n   - 오늘 조치: ${r.action.split('.')[0]}.\n   - 결정 요청: ${r.ask||'확인 요청'}`).join('\n')+
+    '\n나머지 건은 제가 직접 처리하겠습니다.';
+}
+function addMail(){
+  const f=nf.value.trim(),s=ns.value.trim(),b=nb.value.trim();
+  if(!b&&!s){alert('제목이나 본문을 넣어 주세요');return}
+  mails.push({id:Math.max(0,...mails.map(m=>m.id))+1,from:f||'(보낸 사람 미상)',subj:s||'(제목 없음)',body:b});
+  nf.value=ns.value=nb.value='';
+  run();
+}
+function delMail(i){mails.splice(i,1);run()}
+function resetSamples(){mails=JSON.parse(JSON.stringify(SAMPLES));run()}
+function copyText(t){
+  if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(t).then(()=>alert('복사했습니다'),()=>fb(t))}else fb(t);
+  function fb(x){const a=document.createElement('textarea');a.value=x;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();alert('복사했습니다')}
+}
+function copyAll(){
+  if(!result.length)run();
+  let t='1. 처리 순서와 이유\n'+result.map((r,i)=>`${i+1}순위 | 메일 ${r.m.id} | ${r.grade} | ${r.reason}`).join('\n');
+  t+='\n\n2. 건별 첫 행동\n'+[...result].sort((a,b)=>a.m.id-b.m.id).map(r=>`메일 ${r.m.id} | ${r.action} | ${r.who} | ${r.note}`).join('\n');
+  t+='\n\n대표 저녁 통화 브리핑\n'+briefText(result.filter(r=>r.who==='대표 보고'));
+  const n=result.find(r=>r.notice&&r.m.notice);
+  if(n)t+='\n\n3. 공지문\n'+n.notice;
+  t+='\n\n사용한 AI 도구: Claude Code (분류 도구 제작 및 문구 초안, 최종 검토는 직접 함)';
+  copyText(t);
+}
+document.getElementById('rules').innerHTML='<b>점수 = 감지된 신호의 합</b> · 6점 이상 긴급 / 3점 이상 중요 / 그 외 일반<br>'+
+  RULES.map(r=>`<span class="tag">${r.k} +${r.w}</span>`).join(' ')+'<br>법적 위험·인사 조치·돈 관련 신호가 있으면 "대표 보고", 없으면 "직접 결정"으로 표시합니다. 점수가 같으면 먼저 온 메일이 앞섭니다.';
+run();
+</script>
+</body>
+</html>

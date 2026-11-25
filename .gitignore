@@ -1,0 +1,5 @@
+# 비밀 키 — 절대 GitHub에 올리지 않음
+.env
+.env.*
+.vercel
+node_modules
